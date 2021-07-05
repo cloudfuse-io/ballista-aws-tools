@@ -59,10 +59,18 @@ package-executor:
 
 # run-integ-local: ask-run-target
 # 	cd rust; AWS_PROFILE=${DEPLOY_PROFILE} cargo run --bin integ
+
+generate-tpch-data:
+	docker build \
+		-t cloudfuse/ballista-tpchgen:v1 \
+		-f docker/tpch/Dockerfile \
+		.
+	mkdir -p data
+	docker run -v `pwd`/data:/data -it --rm cloudfuse/ballista-tpchgen:v1
 	
-# run-integ-docker: ask-run-target
-# 	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker-compose -f docker/docker-compose.yml build
-# 	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 AWS_PROFILE=${DEPLOY_PROFILE} docker-compose -f docker/docker-compose.yml up --abort-on-container-exit
+run-integ-docker: ask-run-target
+	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker-compose -f docker/docker-compose.yml build
+	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 AWS_PROFILE=${DEPLOY_PROFILE} docker-compose -f docker/docker-compose.yml up --abort-on-container-exit
 
 # example-direct-s3: ask-run-target
 # 	cd rust; RUST_BACKTRACE=1 AWS_PROFILE=${DEPLOY_PROFILE} cargo run --example direct_s3

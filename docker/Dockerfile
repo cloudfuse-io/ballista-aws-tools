@@ -36,5 +36,6 @@ ARG PORT
 EXPOSE ${PORT}
 COPY --from=build-stage /buildspace/exec-static /app
 COPY --from=build-stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build-stage /tmp /tmp
 
 ENTRYPOINT ["./app"]

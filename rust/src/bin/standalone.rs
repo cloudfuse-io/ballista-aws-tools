@@ -32,7 +32,7 @@ use tower::Service;
 use uuid::Uuid;
 
 use ballista_core::serde::protobuf::{
-    scheduler_grpc_client::SchedulerGrpcClient, ExecutorRegistration,
+    executor_registration, scheduler_grpc_client::SchedulerGrpcClient, ExecutorRegistration,
 };
 use ballista_core::BALLISTA_VERSION;
 use ballista_core::{print_version, serde::protobuf::scheduler_grpc_server::SchedulerGrpcServer};
@@ -130,6 +130,7 @@ async fn scheduler(opt: &Config) -> Result<()> {
 
 pub async fn executor(opt: &Config) -> Result<()> {
     let bind_host = &opt.bind_host;
+    let external_host = &opt.executor_external_host;
     let port = opt.executor_bind_port;
 
     let addr = format!("{}:{}", bind_host, port);
@@ -152,7 +153,9 @@ pub async fn executor(opt: &Config) -> Result<()> {
 
     let executor_meta = ExecutorRegistration {
         id: Uuid::new_v4().to_string(), // assign this executor a unique ID
-        optional_host: None,
+        optional_host: external_host
+            .clone()
+            .map(executor_registration::OptionalHost::Host),
         port: port as u32,
     };
 
