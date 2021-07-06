@@ -1,44 +1,20 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
-//! Ballista Rust executor binary.
+//! Ballista Rust scheduler + executor binary.
 
 use std::convert::Infallible;
+use std::sync::atomic::Ordering;
 use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::{Context, Result};
-use arrow_flight::flight_service_server::FlightServiceServer;
+use ballista_aws_tools::{get_fargate_task_external_host, shutdown_ticker, start_executor};
 
+use anyhow::{Context, Result};
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
-use tempfile::TempDir;
 use tonic::transport::Server as TonicServer;
 use tower::Service;
-use uuid::Uuid;
 
-use ballista_core::serde::protobuf::{
-    executor_registration, scheduler_grpc_client::SchedulerGrpcClient, ExecutorRegistration,
-};
 use ballista_core::BALLISTA_VERSION;
 use ballista_core::{print_version, serde::protobuf::scheduler_grpc_server::SchedulerGrpcServer};
-use ballista_executor::execution_loop;
-use ballista_executor::executor::Executor;
-use ballista_executor::flight_service::BallistaFlightService;
 use ballista_scheduler::api::{get_routes, EitherBody, Error};
 use ballista_scheduler::state::StandaloneClient;
 use ballista_scheduler::{state::ConfigBackendClient, SchedulerServer};
@@ -62,10 +38,7 @@ use config::prelude::*;
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
-/// We limit the number of concurrent tasks to 1 for now
-static CONCURENT_TASKS: usize = 1;
-
-async fn start_server(
+async fn start_scheduler_server(
     config_backend: Arc<dyn ConfigBackendClient>,
     namespace: String,
     addr: SocketAddr,
@@ -74,6 +47,8 @@ async fn start_server(
         "Ballista v{} Scheduler listening on {:?}",
         BALLISTA_VERSION, addr
     );
+
+    let last_query_time = shutdown_ticker();
 
     Ok(Server::bind(&addr)
         .serve(make_service_fn(move |request: &AddrStream| {
@@ -89,10 +64,16 @@ async fn start_server(
                 .into_service();
             let mut warp = warp::service(get_routes(scheduler_server));
 
+            let last_query_time = Arc::clone(&last_query_time);
+
             future::ok::<_, Infallible>(tower::service_fn(
                 move |req: hyper::Request<hyper::Body>| {
-                    let header = req.headers().get(hyper::header::ACCEPT);
-                    if header.is_some() && header.unwrap().eq("application/json") {
+                    let lifetime_header = req.headers().get("x-lifetime");
+                    if lifetime_header.is_some() && lifetime_header.unwrap().eq("extend") {
+                        last_query_time.store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+                    }
+                    let accept_header = req.headers().get(hyper::header::ACCEPT);
+                    if accept_header.is_some() && accept_header.unwrap().eq("application/json") {
                         return Either::Left(
                             warp.call(req)
                                 .map_ok(|res| res.map(EitherBody::Left))
@@ -124,67 +105,29 @@ async fn scheduler(opt: &Config) -> Result<()> {
         StandaloneClient::try_new_temporary()
             .context("Could not create standalone config backend")?,
     );
-    start_server(client, namespace, addr).await?;
+    start_scheduler_server(client, namespace, addr).await?;
     Ok(())
 }
 
 pub async fn executor(opt: &Config) -> Result<()> {
-    let bind_host = &opt.bind_host;
-    let external_host = &opt.executor_external_host;
-    let port = opt.executor_bind_port;
-
-    let addr = format!("{}:{}", bind_host, port);
-    let addr = addr
-        .parse()
-        .with_context(|| format!("Could not parse address: {}", addr))?;
-
-    let scheduler_host = "localhost";
-    let scheduler_port = opt.scheduler_bind_port;
-    let scheduler_url = format!("http://{}:{}", scheduler_host, scheduler_port);
-
-    let work_dir = TempDir::new()?
-        .into_path()
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    info!("Running with config:");
-    info!("work_dir: {}", work_dir);
-    info!("concurrent_tasks: {}", CONCURENT_TASKS);
-
-    let executor_meta = ExecutorRegistration {
-        id: Uuid::new_v4().to_string(), // assign this executor a unique ID
-        optional_host: external_host
-            .clone()
-            .map(executor_registration::OptionalHost::Host),
-        port: port as u32,
+    let bind_host = opt.bind_host.clone();
+    // if no host is specified in conf, assume we are runnin in Fargate
+    let external_host = match &opt.executor_external_host {
+        Some(host) => host.clone(),
+        None => get_fargate_task_external_host().await?,
     };
+    let bind_port = opt.executor_bind_port;
+    let scheduler_host = "localhost".to_owned();
+    let scheduler_port = opt.scheduler_bind_port;
 
-    let scheduler = SchedulerGrpcClient::connect(scheduler_url)
-        .await
-        .context("Could not connect to scheduler")?;
-
-    let executor = Arc::new(Executor::new(&work_dir));
-
-    let service = BallistaFlightService::new(executor.clone());
-
-    let server = FlightServiceServer::new(service);
-    info!(
-        "Ballista v{} Rust Executor listening on {:?}",
-        BALLISTA_VERSION, addr
-    );
-    let server_future = tokio::spawn(TonicServer::builder().add_service(server).serve(addr));
-    tokio::spawn(execution_loop::poll_loop(
-        scheduler,
-        executor,
-        executor_meta,
-        CONCURENT_TASKS,
-    ));
-
-    server_future
-        .await
-        .context("Tokio error")?
-        .context("Could not start executor server")?;
-    Ok(())
+    start_executor(
+        bind_host,
+        bind_port,
+        scheduler_host,
+        scheduler_port,
+        Some(external_host),
+    )
+    .await
 }
 
 #[tokio::main]

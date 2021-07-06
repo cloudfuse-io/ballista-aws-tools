@@ -4,10 +4,18 @@ version = "0.1.0"
 authors = ["rdettai <contact@cloudfuse.io>"]
 edition = "2018"
 
+[lib]
+name = "ballista_aws_tools"
+
 [dependencies]
 ballista-core = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
 ballista-executor = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
 ballista-scheduler = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
+ballista = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
+rusoto_core = { version = "0.46.0", default_features = false, features=["rustls"] }
+rusoto_ecs = { version = "0.46.0", default_features = false, features=["rustls"] }
+lambda_runtime = "0.2.1"
 arrow-flight = { version = "4.4"  }
 anyhow = "1"
 async-trait = "0.1.36"
@@ -21,9 +29,13 @@ tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = "0.4"
 uuid = { version = "0.8", features = ["v4"] }
-hyper = "0.14.4"
+hyper = { version = "0.14.4", features = ["full"] }
 tower = { version = "0.4" }
 warp = "0.3"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+envy = {version = "0.4" }
+chrono = { version = "0.4" }
 
 [build-dependencies]
 configure_me_codegen = "0.4.0"
