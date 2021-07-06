@@ -6,7 +6,7 @@ locals {
   container_definition = [
     {
       cpu         = var.task_cpu
-      image       = var.docker_image
+      image       = aws_ecr_repository.image_repository.repository_url
       memory      = var.task_memory
       name        = var.name
       essential   = true

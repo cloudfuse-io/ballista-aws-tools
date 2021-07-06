@@ -1,33 +1,9 @@
 ##### BALLISTA #####
 
-resource "aws_ecr_repository" "ballista_repo" {
-  name                 = "${module.env.module_name}-ballista-standalone-${module.env.stage}"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = false
-  }
-}
-
-resource "null_resource" "ballista_standalone_push" {
-  count = var.push_ballista ? 1 : 0
-
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = <<EOT
-      docker tag "cloudfuse/ballista-standalone:${var.git_revision}" "${aws_ecr_repository.ballista_repo.repository_url}:${var.git_revision}"
-      docker push "${aws_ecr_repository.ballista_repo.repository_url}:${var.git_revision}"
-    EOT
-  }
-}
-
-module "ballista" {
+module "ballista_standalone" {
   source = "./fargate"
 
-  name                        = "ballista"
+  name                        = "ballista-standalone"
   region_name                 = var.region_name
   vpc_id                      = module.vpc.vpc_id
   task_cpu                    = 2048
@@ -35,7 +11,8 @@ module "ballista" {
   ecs_cluster_id              = aws_ecs_cluster.ballista_cluster.id
   ecs_cluster_name            = aws_ecs_cluster.ballista_cluster.name
   ecs_task_execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
-  docker_image                = "${aws_ecr_repository.ballista_repo.repository_url}:${var.git_revision}"
+  source_docker_image         = "cloudfuse/ballista-standalone:${var.git_revision}"
+  push_image                  = var.push_ballista
   subnets                     = module.vpc.public_subnets
 
   attach_efs     = true
@@ -77,8 +54,8 @@ module "trigger" {
   environment = {
     GIT_REVISION       = var.git_revision
     BALLISTA_CLUSTER_NAME = aws_ecs_cluster.ballista_cluster.name
-    BALLISTA_TASK_SG_ID   = module.ballista.task_security_group_id
-    BALLISTA_TASK_DEF_ARN = module.ballista.task_definition_arn
+    BALLISTA_TASK_SG_ID   = module.ballista_standalone.task_security_group_id
+    BALLISTA_TASK_DEF_ARN = module.ballista_standalone.task_definition_arn
     PUBLIC_SUBNETS     = join(",", module.vpc.public_subnets)
   }
 }

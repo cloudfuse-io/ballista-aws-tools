@@ -144,7 +144,7 @@ async fn query_ballista(host: &str, port: u16) -> Result<()> {
 
     // run benchmark
     let sql = QUERY;
-    println!("Running benchmark with query {}", sql);
+    println!("Running benchmark with query: {}", sql);
     let start = Instant::now();
     let df = ctx.sql(&sql)?;
     let mut batches = vec![];

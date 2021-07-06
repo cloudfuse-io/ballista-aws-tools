@@ -25,9 +25,14 @@ variable "ecs_cluster_name" {}
 
 variable "ecs_task_execution_role_arn" {}
 
-variable "docker_image" {}
+variable "source_docker_image" {}
 
 variable "subnets" {}
+
+variable "push_image" {
+  description = "Set to false if image does not need to be updated"
+  default     = true
+}
 
 variable "attach_efs" {
   description = "Set this to true if the lambda use EFS"

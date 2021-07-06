@@ -63,18 +63,16 @@ impl FargateCreationClient {
                 )
                 .await?,
             );
+            println!("[trigger] task started");
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-
-        println!("[fuse] task started");
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
 
         let result = self
             .wait_for_provisioning(task_arn.unwrap(), config.ballista_cluster_name.clone())
             .await?;
 
         println!(
-            "[fuse] took {}ms to create new task",
+            "[trigger] took {}ms to create/find task",
             start.elapsed().as_millis()
         );
 
