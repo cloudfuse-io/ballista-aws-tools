@@ -13,8 +13,8 @@ use log::info;
 use tonic::transport::Server as TonicServer;
 use tower::Service;
 
+use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpcServer;
 use ballista_core::BALLISTA_VERSION;
-use ballista_core::{print_version, serde::protobuf::scheduler_grpc_server::SchedulerGrpcServer};
 use ballista_scheduler::api::{get_routes, EitherBody, Error};
 use ballista_scheduler::state::StandaloneClient;
 use ballista_scheduler::{state::ConfigBackendClient, SchedulerServer};
@@ -22,21 +22,7 @@ use ballista_scheduler::{state::ConfigBackendClient, SchedulerServer};
 #[macro_use]
 extern crate configure_me;
 
-#[allow(clippy::all, warnings)]
-mod config {
-    // Ideally we would use the include_config macro from configure_me, but then we cannot use
-    // #[allow(clippy::all)] to silence clippy warnings from the generated code
-    include!(concat!(
-        env!("OUT_DIR"),
-        "/standalone_configure_me_config.rs"
-    ));
-}
-
-use config::prelude::*;
-
-#[cfg(feature = "snmalloc")]
-#[global_allocator]
-static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+include_config!("standalone");
 
 async fn start_scheduler_server(
     config_backend: Arc<dyn ConfigBackendClient>,
@@ -137,18 +123,13 @@ async fn main() -> Result<()> {
         config::Config::including_optional_config_files(&["/etc/ballista/standalone.toml"])
             .unwrap_or_exit();
 
-    if opt.version {
-        print_version();
-        std::process::exit(0);
-    }
-
     env_logger::init();
     tokio::select! {
         res = scheduler(&opt) => {
-            println!("scheduler stopped: {:?}", res);
+            info!("scheduler stopped: {:?}", res);
         }
         res = executor(&opt) => {
-            println!("executor stopped: {:?}", res);
+            info!("executor stopped: {:?}", res);
         }
     }
     Ok(())

@@ -1,43 +1,28 @@
-use envy;
+use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use log::info;
 use rusoto_core::Region;
 use rusoto_ecs::{
-    AwsVpcConfiguration, DescribeTasksRequest, Ecs, EcsClient, ListTasksRequest, ListTasksResponse,
-    NetworkConfiguration, RunTaskRequest,
+    AwsVpcConfiguration, DescribeTaskDefinitionRequest, DescribeTasksRequest, Ecs, EcsClient,
+    ListTasksRequest, ListTasksResponse, NetworkConfiguration, RunTaskRequest,
 };
 use tokio::time::timeout;
 
-use serde::Deserialize;
-
-pub fn get_fargate_config() -> Result<FargateConfig> {
-    let conf = envy::from_env::<FargateConfig>()?;
-    Ok(conf)
-}
-
-#[derive(Deserialize, Debug)]
-pub struct FargateConfig {
-    pub ballista_cluster_name: String,
-    pub ballista_task_sg_id: String,
-    pub public_subnets: Vec<String>,
-    pub ballista_task_def_arn: String,
-    pub aws_region: String,
-}
-
 pub struct FargateCreationClient {
     client: Arc<EcsClient>,
-    config: Arc<FargateConfig>,
+    cluster_name: String,
 }
 
 impl FargateCreationClient {
-    pub fn try_new() -> Result<Self> {
-        let config = Arc::new(get_fargate_config()?);
+    pub fn try_new(cluster_name: String) -> Result<Self> {
+        let aws_region = env::var("AWS_REGION")?;
         Ok(Self {
-            client: new_client(&config.aws_region),
-            config,
+            client: new_client(&aws_region),
+            cluster_name,
         })
     }
 }
@@ -45,48 +30,66 @@ impl FargateCreationClient {
 impl FargateCreationClient {
     /// Create a new fargate task and returns private IP.
     /// The task might not be ready to receive requests yet.
-    pub async fn create_new(&self) -> Result<String> {
+    /// TODO make it possible to create multiple tasks
+    pub async fn create_new(
+        &self,
+        task_def_arn: String,
+        task_sg_id: String,
+        subnets: Vec<String>,
+    ) -> Result<String> {
         let start = Instant::now();
-        let config = Arc::clone(&self.config);
 
-        let mut task_arn = self
-            .get_existing_task(config.ballista_cluster_name.clone())
-            .await;
+        let mut task_arn = self.get_existing_task(task_def_arn.clone()).await;
 
         if task_arn.is_none() {
             task_arn = Some(
-                self.start_task(
-                    config.ballista_task_def_arn.clone(),
-                    config.ballista_cluster_name.clone(),
-                    config.public_subnets.clone(),
-                    config.ballista_task_sg_id.clone(),
-                )
-                .await?,
+                self.start_task(task_def_arn.clone(), task_sg_id.clone(), subnets)
+                    .await?,
             );
-            println!("[trigger] task started");
+            info!("task started");
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        let result = self
-            .wait_for_provisioning(task_arn.unwrap(), config.ballista_cluster_name.clone())
-            .await?;
+        let result = self.wait_for_provisioning(task_arn.unwrap()).await?;
 
-        println!(
-            "[trigger] took {}ms to create/find task",
-            start.elapsed().as_millis()
-        );
+        info!("took {}ms to create/find task", start.elapsed().as_millis());
 
         Ok(result)
     }
 
-    /// Get existing task ARN if their is one
-    /// /// TODO better error management
-    async fn get_existing_task(&self, cluster_name: String) -> Option<String> {
+    /// Get the family of the given task definition.
+    /// TODO better error management
+    async fn get_task_family(&self, task_def_arn: String) -> Result<String> {
+        let request = DescribeTaskDefinitionRequest {
+            include: None,
+            task_definition: task_def_arn,
+        };
+
+        let result = timeout(
+            Duration::from_secs(2),
+            self.client.describe_task_definition(request),
+        )
+        .await??;
+
+        // if request for existing task failed for any reason, return None
+        result
+            .task_definition
+            .ok_or(anyhow!("Task definition object should not be undefined"))?
+            .family
+            .ok_or(anyhow!("Task definition family should not be undefined"))
+    }
+
+    /// Get existing task ARN if there is at least one.
+    /// Picks the first one returned by the API.
+    /// TODO better error management
+    pub async fn get_existing_task(&self, task_def_arn: String) -> Option<String> {
+        let family = self.get_task_family(task_def_arn).await.unwrap();
+
         let request = ListTasksRequest {
-            cluster: Some(cluster_name),
+            cluster: Some(self.cluster_name.clone()),
             container_instance: None,
             desired_status: Some("RUNNING".to_owned()),
-            family: None,
+            family: Some(family),
             launch_type: None,
             max_results: Some(1),
             next_token: None,
@@ -110,16 +113,15 @@ impl FargateCreationClient {
     /// TODO better error management
     async fn start_task(
         &self,
-        task_definition: String,
-        cluster_name: String,
-        subnets: Vec<String>,
+        task_def_arn: String,
         security_group: String,
+        subnets: Vec<String>,
     ) -> Result<String> {
         let input = RunTaskRequest {
-            task_definition,
-            count: Some(1),
-            cluster: Some(cluster_name),
             group: None,
+            task_definition: task_def_arn,
+            count: Some(1),
+            cluster: Some(self.cluster_name.clone()),
             network_configuration: Some(NetworkConfiguration {
                 awsvpc_configuration: Some(AwsVpcConfiguration {
                     assign_public_ip: Some("ENABLED".to_owned()),
@@ -162,14 +164,10 @@ impl FargateCreationClient {
     /// Wait for the given task to be provisioned and attributed a private IP
     /// TODO better error management
     /// TODO fargate container lifecycle
-    async fn wait_for_provisioning(
-        &self,
-        task_arn: String,
-        ballista_cluster_name: String,
-    ) -> Result<String> {
+    pub async fn wait_for_provisioning(&self, task_arn: String) -> Result<String> {
         loop {
             let input = DescribeTasksRequest {
-                cluster: Some(ballista_cluster_name.clone()),
+                cluster: Some(self.cluster_name.clone()),
                 include: None,
                 tasks: vec![task_arn.clone()],
             };

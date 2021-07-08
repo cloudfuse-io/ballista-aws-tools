@@ -39,7 +39,17 @@ resource "aws_iam_policy" "fargate-additional-policy" {
         "ecs:RunTask",
         "ecs:StartTask"
       ],
-      "Resource": "${module.ballista_standalone.task_definition_arn}",
+      "Resource": [
+        "${module.ballista_standalone.task_definition_arn}",
+        "${module.ballista_executor.task_definition_arn}"
+      ],
+      "Effect": "Allow"
+    },
+    {
+      "Action": [
+        "ecs:DescribeTaskDefinition"
+      ],
+      "Resource": "*",
       "Effect": "Allow"
     },
     {

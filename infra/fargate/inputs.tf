@@ -34,6 +34,11 @@ variable "push_image" {
   default     = true
 }
 
+variable "additional_policies" {
+  type    = list(any)
+  default = []
+}
+
 variable "attach_efs" {
   description = "Set this to true if the lambda use EFS"
   default     = false

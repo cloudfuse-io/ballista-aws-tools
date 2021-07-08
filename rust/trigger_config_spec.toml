@@ -1,0 +1,52 @@
+[general]
+name = "Ballista Trigger"
+env_prefix = "BALLISTA_TRIGGER"
+conf_file_param = "config_file"
+
+[[param]]
+name = "namespace"
+type = "String"
+doc = "Namespace for the ballista cluster. Default: ballista"
+default = "std::string::String::from(\"ballista\")"
+
+[[param]]
+name = "scheduler_port"
+type = "u16"
+default = "50050"
+doc = "Scheduler port. Default: 50050"
+
+[[param]]
+name = "cluster_name"
+type = "String"
+doc = "Fargate cluster name"
+optional = false
+
+[[param]]
+name = "standalone_task_sg_id"
+type = "String"
+doc = "Task security group id for standalone component"
+optional = false
+
+[[param]]
+name = "standalone_task_def_arn"
+type = "String"
+doc = "Task Definition ARN for standalone component"
+optional = false
+
+[[param]]
+name = "executor_task_sg_id"
+type = "String"
+doc = "Task security group id for executor component"
+optional = false
+
+[[param]]
+name = "executor_task_def_arn"
+type = "String"
+doc = "Task Definition ARN for executor component"
+optional = false
+
+[[param]]
+name = "subnets"
+type = "String"
+doc = "Comma separated list of subnets to deploy tasks into"
+optional = false

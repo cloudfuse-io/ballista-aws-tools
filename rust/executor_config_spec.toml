@@ -3,14 +3,9 @@ name = "Ballista Executor"
 env_prefix = "BALLISTA_EXECUTOR"
 conf_file_param = "config_file"
 
-[[switch]]
-name = "version"
-doc = "Print version of this executable"
-
 [[param]]
 name = "scheduler_host"
 type = "String"
-default = "std::string::String::from(\"localhost\")"
 doc = "Scheduler host"
 
 [[param]]
@@ -30,3 +25,15 @@ name = "bind_port"
 type = "u16"
 default = "50051"
 doc = "bind port"
+
+[[param]]
+name = "cluster_name"
+type = "String"
+doc = "Fargate cluster name"
+optional = false
+
+[[param]]
+name = "scheduler_task_def_arn"
+type = "String"
+doc = "Task Definition ARN for scheduler component (standalone task)"
+optional = false

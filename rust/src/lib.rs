@@ -135,8 +135,8 @@ pub fn shutdown_ticker() -> Arc<AtomicI64> {
             interval.tick().await;
             let elapsed = chrono::Utc::now().timestamp() - last_query_ref.load(Ordering::Relaxed);
             if elapsed >= TASK_EXPIRATION_SEC {
-                println!(
-                    "[ballista] task expired after {}s of inactivity, shutting down...",
+                info!(
+                    "task expired after {}s of inactivity, shutting down...",
                     elapsed
                 );
                 exit(0);
@@ -149,3 +149,4 @@ pub fn shutdown_ticker() -> Arc<AtomicI64> {
 ///////////////////////////////////////////////////////
 
 pub mod fargate;
+pub mod tpch;

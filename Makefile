@@ -76,7 +76,7 @@ destroy: ask-deploy-target
 		--var region_name=${REGION}
 
 # deploy/update the terraform stack, requires to be logged in to ECR
-deploy-all: ask-deploy-target package-standalone package-lambdas
+deploy-all: ask-deploy-target package-standalone package-executor package-lambdas
 	@echo "DEPLOYING ${GIT_REVISION} on ${STAGE}..."
 	@cd infra; ${terraform} workspace select ${STAGE}
 	@cd infra; ${terraform} apply \

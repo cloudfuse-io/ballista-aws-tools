@@ -24,6 +24,51 @@ module "ballista_standalone" {
     }, {
     name  = "AWS_REGION"
     value = var.region_name
+    }, {
+    name  = "RUST_LOG"
+    value = "info"
+  }]
+}
+
+module "ballista_executor" {
+  source = "./fargate"
+
+  name                        = "ballista-executor"
+  region_name                 = var.region_name
+  vpc_id                      = module.vpc.vpc_id
+  task_cpu                    = 2048
+  task_memory                 = 4096
+  ecs_cluster_id              = aws_ecs_cluster.ballista_cluster.id
+  ecs_cluster_name            = aws_ecs_cluster.ballista_cluster.name
+  ecs_task_execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
+  source_docker_image         = "cloudfuse/ballista-executor:${var.git_revision}"
+  push_image                  = var.push_ballista
+  subnets                     = module.vpc.public_subnets
+
+  additional_policies = [
+    # aws_iam_policy.s3-additional-policy.arn,
+    aws_iam_policy.fargate-additional-policy.arn
+    # aws_iam_policy.lambda-additional-policy.arn
+  ]
+
+  attach_efs     = true
+  file_system_id = aws_efs_file_system.efs_test_data.id
+
+  environment = [{
+    name  = "GIT_REVISION"
+    value = var.git_revision
+    }, {
+    name  = "AWS_REGION"
+    value = var.region_name
+    }, {
+    name  = "BALLISTA_EXECUTOR_CLUSTER_NAME"
+    value = aws_ecs_cluster.ballista_cluster.name
+    }, {
+    name  = "BALLISTA_EXECUTOR_SCHEDULER_TASK_DEF_ARN"
+    value = module.ballista_standalone.task_definition_arn
+    }, {
+    name  = "RUST_LOG"
+    value = "info"
   }]
 }
 
@@ -52,11 +97,14 @@ module "trigger" {
   ]
 
   environment = {
-    GIT_REVISION       = var.git_revision
-    BALLISTA_CLUSTER_NAME = aws_ecs_cluster.ballista_cluster.name
-    BALLISTA_TASK_SG_ID   = module.ballista_standalone.task_security_group_id
-    BALLISTA_TASK_DEF_ARN = module.ballista_standalone.task_definition_arn
-    PUBLIC_SUBNETS     = join(",", module.vpc.public_subnets)
+    RUST_LOG                                 = "info"
+    GIT_REVISION                             = var.git_revision
+    BALLISTA_TRIGGER_CLUSTER_NAME            = aws_ecs_cluster.ballista_cluster.name
+    BALLISTA_TRIGGER_STANDALONE_TASK_SG_ID   = module.ballista_standalone.task_security_group_id
+    BALLISTA_TRIGGER_STANDALONE_TASK_DEF_ARN = module.ballista_standalone.task_definition_arn
+    BALLISTA_TRIGGER_EXECUTOR_TASK_SG_ID     = module.ballista_executor.task_security_group_id
+    BALLISTA_TRIGGER_EXECUTOR_TASK_DEF_ARN   = module.ballista_executor.task_definition_arn
+    BALLISTA_TRIGGER_SUBNETS                 = join(",", module.vpc.public_subnets)
   }
 }
 
@@ -89,6 +137,6 @@ module "copy_data" {
   ]
 
   environment = {
-    GIT_REVISION       = var.git_revision
+    GIT_REVISION = var.git_revision
   }
 }

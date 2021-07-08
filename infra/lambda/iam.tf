@@ -42,6 +42,7 @@ EOF
 }
 
 resource "aws_iam_role_policy_attachment" "lamba_exec_role_eni" {
+  count      = var.in_vpc ? 1 : 0
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }

@@ -3,10 +3,6 @@ name = "Ballista Standalone = Scheduler + Executor"
 env_prefix = "BALLISTA_STANDALONE"
 conf_file_param = "config_file"
 
-[[switch]]
-name = "version"
-doc = "Print version of this executable"
-
 [[param]]
 name = "namespace"
 type = "String"

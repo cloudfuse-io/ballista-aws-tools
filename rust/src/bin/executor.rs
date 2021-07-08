@@ -1,43 +1,66 @@
 //! Ballista executor binary.
+use std::process::exit;
+use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use log::info;
 
+use ballista_aws_tools::fargate;
 use ballista_aws_tools::start_executor;
-
-use ballista_core::print_version;
 
 #[macro_use]
 extern crate configure_me;
 
-#[cfg(feature = "snmalloc")]
-#[global_allocator]
-static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+include_config!("executor");
 
-#[allow(clippy::all, warnings)]
-mod config {
-    // Ideally we would use the include_config macro from configure_me, but then we cannot use
-    // #[allow(clippy::all)] to silence clippy warnings from the generated code
-    include!(concat!(env!("OUT_DIR"), "/executor_configure_me_config.rs"));
-}
-
-use config::prelude::*;
+const TASK_RECONNECT_SEC: u64 = 10;
 
 pub async fn executor() -> Result<()> {
     let (opt, _remaining_args) =
         config::Config::including_optional_config_files(&["/etc/ballista/executor.toml"])
             .unwrap_or_exit();
 
-    if opt.version {
-        print_version();
-        std::process::exit(0);
-    }
-
     let bind_host = opt.bind_host;
     let bind_port = opt.bind_port;
 
-    let scheduler_host = opt.scheduler_host;
-    let scheduler_port = opt.scheduler_port;
+    // if no host is specified in conf, assume we are runnin in Fargate
+    let scheduler_host = match &opt.scheduler_host {
+        Some(host) => host.clone(),
+        None => {
+            let client = fargate::FargateCreationClient::try_new(opt.cluster_name)?;
+            let task_def_arn_ref = Arc::new(opt.scheduler_task_def_arn);
+            let task_arn = client
+                .get_existing_task(String::clone(&task_def_arn_ref))
+                .await
+                .ok_or(anyhow!("Scheduler task not found"))?;
+            let host = client.wait_for_provisioning(task_arn).await?;
+            // poll fargate to check that the scheduler is still there, otherwise shutdown
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(TASK_RECONNECT_SEC));
+                loop {
+                    interval.tick().await;
+                    client
+                        .get_existing_task(String::clone(&task_def_arn_ref))
+                        .await
+                        .or_else(|| {
+                            info!("Shutting down after scheduler lost");
+                            exit(0);
+                        });
+                }
+            });
+            host
+        }
+    };
 
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+        }
+    });
+
+    let scheduler_port = opt.scheduler_port;
     start_executor(bind_host, bind_port, scheduler_host, scheduler_port, None).await
 }
 
