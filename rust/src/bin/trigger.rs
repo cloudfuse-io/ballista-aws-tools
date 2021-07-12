@@ -4,10 +4,11 @@ use std::time::Instant;
 use anyhow::Result;
 use log::{debug, info};
 
-use ballista_aws_tools::fargate;
 use ballista_aws_tools::tpch::{register_tpch_tables, QUERY_1};
+use ballista_aws_tools::{fargate, wait_executors};
 
 use ballista::context::BallistaContext;
+use datafusion::arrow::util::pretty;
 use futures::StreamExt;
 use lambda_runtime::{error::HandlerError, lambda, Context};
 use serde_json::Value;
@@ -34,11 +35,13 @@ async fn query_ballista(host: &str, port: u16) -> Result<()> {
     }
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
     info!("Query took {:.1} ms", elapsed);
+    pretty::print_batches(&batches)?;
 
     Ok(())
 }
 
 pub async fn start_trigger() -> Result<()> {
+    let executor_count = 3;
     // parse options
     let (opt, _remaining_args) =
         config::Config::including_optional_config_files(&["/etc/ballista/standalone.toml"])
@@ -47,18 +50,25 @@ pub async fn start_trigger() -> Result<()> {
     // start standalone and extra executor
     let subnets: Vec<String> = opt.subnets.split(",").map(|s| s.to_owned()).collect();
     let client = fargate::FargateCreationClient::try_new(opt.cluster_name)?;
-    let sched_future = client.create_new(
+    let sched_future = client.get_or_provision(
         opt.standalone_task_def_arn,
         opt.standalone_task_sg_id,
         subnets.clone(),
+        1,
     );
-    let exec_future =
-        client.create_new(opt.executor_task_def_arn, opt.executor_task_sg_id, subnets);
+    let exec_future = client.get_or_provision(
+        opt.executor_task_def_arn,
+        opt.executor_task_sg_id,
+        subnets,
+        executor_count - 1,
+    );
     let (scheduler_ip_res, executor_ip_res) = tokio::join!(sched_future, exec_future);
-    let scheduler_ip = scheduler_ip_res?;
-    let executor_ip = executor_ip_res?;
+    let scheduler_ip = &scheduler_ip_res?[0];
+    let executor_ips = executor_ip_res?;
 
-    info!("scheduler: {}, executor: {}", scheduler_ip, executor_ip);
+    info!("scheduler: {}, executors: {:?}", scheduler_ip, executor_ips);
+
+    wait_executors(&scheduler_ip, opt.scheduler_port, executor_count).await?;
 
     query_ballista(&scheduler_ip, opt.scheduler_port).await?;
     Ok(())

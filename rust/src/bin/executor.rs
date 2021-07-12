@@ -3,7 +3,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use log::info;
 
 use ballista_aws_tools::fargate;
@@ -31,25 +31,29 @@ pub async fn executor() -> Result<()> {
             let client = fargate::FargateCreationClient::try_new(opt.cluster_name)?;
             let task_def_arn_ref = Arc::new(opt.scheduler_task_def_arn);
             let task_arn = client
-                .get_existing_task(String::clone(&task_def_arn_ref))
-                .await
-                .ok_or(anyhow!("Scheduler task not found"))?;
+                .get_existing_tasks(String::clone(&task_def_arn_ref))
+                .await?;
+            if task_arn.len() == 0 {
+                bail!("Scheduler task not found");
+            }
             let host = client.wait_for_provisioning(task_arn).await?;
             // poll fargate to check that the scheduler is still there, otherwise shutdown
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(TASK_RECONNECT_SEC));
                 loop {
                     interval.tick().await;
-                    client
-                        .get_existing_task(String::clone(&task_def_arn_ref))
+                    // TODO ping scheduler instead of using Fargate API
+                    let scheduler_tasks = client
+                        .get_existing_tasks(String::clone(&task_def_arn_ref))
                         .await
-                        .or_else(|| {
-                            info!("Shutting down after scheduler lost");
-                            exit(0);
-                        });
+                        .expect("Could not get existing tasks in keepalive ticker");
+                    if scheduler_tasks.len() == 0 {
+                        info!("Shutting down after scheduler lost");
+                        exit(0);
+                    }
                 }
             });
-            host
+            String::from(&host[0])
         }
     };
 

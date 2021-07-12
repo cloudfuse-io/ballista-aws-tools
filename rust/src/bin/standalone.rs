@@ -4,7 +4,8 @@ use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::{net::SocketAddr, sync::Arc};
 
-use ballista_aws_tools::{get_fargate_task_external_host, shutdown_ticker, start_executor};
+use ballista_aws_tools::fargate::get_fargate_task_external_host;
+use ballista_aws_tools::{shutdown_ticker, start_executor};
 
 use anyhow::{Context, Result};
 use futures::future::{self, Either, TryFutureExt};

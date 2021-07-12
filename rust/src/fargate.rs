@@ -1,20 +1,34 @@
 use std::env;
+use std::str;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use futures::{Future, StreamExt, TryStreamExt};
+use hyper::{body::to_bytes, Body, Client, Uri};
 use log::info;
 use rusoto_core::Region;
 use rusoto_ecs::{
     AwsVpcConfiguration, DescribeTaskDefinitionRequest, DescribeTasksRequest, Ecs, EcsClient,
-    ListTasksRequest, ListTasksResponse, NetworkConfiguration, RunTaskRequest,
+    ListTasksRequest, NetworkConfiguration, RunTaskRequest,
 };
+use serde::Deserialize;
 use tokio::time::timeout;
 
 pub struct FargateCreationClient {
     client: Arc<EcsClient>,
     cluster_name: String,
+}
+
+async fn api_timeout<T, S, E>(future: T) -> Result<S>
+where
+    T: Future<Output = std::result::Result<S, E>>,
+    E: std::error::Error + Sync + Send + 'static,
+{
+    Ok(timeout(Duration::from_secs(2), future)
+        .await
+        .context("Query to Fargate API timed out")??)
 }
 
 impl FargateCreationClient {
@@ -30,29 +44,41 @@ impl FargateCreationClient {
 impl FargateCreationClient {
     /// Create a new fargate task and returns private IP.
     /// The task might not be ready to receive requests yet.
-    /// TODO make it possible to create multiple tasks
-    pub async fn create_new(
+    pub async fn get_or_provision(
         &self,
         task_def_arn: String,
         task_sg_id: String,
         subnets: Vec<String>,
-    ) -> Result<String> {
+        count: usize,
+    ) -> Result<Vec<String>> {
         let start = Instant::now();
 
-        let mut task_arn = self.get_existing_task(task_def_arn.clone()).await;
+        let mut task_arns = self.get_existing_tasks(task_def_arn.clone()).await?;
 
-        if task_arn.is_none() {
-            task_arn = Some(
-                self.start_task(task_def_arn.clone(), task_sg_id.clone(), subnets)
-                    .await?,
-            );
-            info!("task started");
+        task_arns.truncate(count);
+
+        let missing_task_count = count.saturating_sub(task_arns.len());
+
+        if missing_task_count > 0 {
+            let future_tasks = (0..missing_task_count).map(|_| {
+                self.start_task(task_def_arn.clone(), task_sg_id.clone(), subnets.clone())
+            });
+            let mut new_task_arns = futures::stream::iter(future_tasks)
+                .buffer_unordered(5)
+                .try_collect::<Vec<_>>()
+                .await?;
+            task_arns.append(&mut new_task_arns);
+
+            info!("{} task started", missing_task_count);
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        let result = self.wait_for_provisioning(task_arn.unwrap()).await?;
+        let result = self.wait_for_provisioning(task_arns).await?;
 
-        info!("took {}ms to create/find task", start.elapsed().as_millis());
+        info!(
+            "took {}ms to create/find tasks",
+            start.elapsed().as_millis()
+        );
 
         Ok(result)
     }
@@ -65,11 +91,7 @@ impl FargateCreationClient {
             task_definition: task_def_arn,
         };
 
-        let result = timeout(
-            Duration::from_secs(2),
-            self.client.describe_task_definition(request),
-        )
-        .await??;
+        let result = api_timeout(self.client.describe_task_definition(request)).await?;
 
         // if request for existing task failed for any reason, return None
         result
@@ -79,10 +101,8 @@ impl FargateCreationClient {
             .ok_or(anyhow!("Task definition family should not be undefined"))
     }
 
-    /// Get existing task ARN if there is at least one.
-    /// Picks the first one returned by the API.
-    /// TODO better error management
-    pub async fn get_existing_task(&self, task_def_arn: String) -> Option<String> {
+    /// Get existing task ARNs.
+    pub async fn get_existing_tasks(&self, task_def_arn: String) -> Result<Vec<String>> {
         let family = self.get_task_family(task_def_arn).await.unwrap();
 
         let request = ListTasksRequest {
@@ -97,16 +117,11 @@ impl FargateCreationClient {
             started_by: None,
         };
 
-        let result = timeout(Duration::from_secs(2), self.client.list_tasks(request)).await;
-
-        // if request for existing task failed for any reason, return None
-        match result {
-            Ok(Ok(ListTasksResponse {
-                task_arns: Some(arns),
-                ..
-            })) if arns.len() > 0 => Some(arns[0].clone()),
-            _ => None,
-        }
+        api_timeout(self.client.list_tasks(request))
+            .await
+            .context("failed to call Fargate list_tasks")?
+            .task_arns
+            .context("Task arn list was none")
     }
 
     /// Start new task and return its arn
@@ -141,7 +156,7 @@ impl FargateCreationClient {
             started_by: None,
             tags: None,
         };
-        let result = timeout(Duration::from_secs(5), self.client.run_task(input)).await??;
+        let result = api_timeout(self.client.run_task(input)).await?;
         if let Some(failures) = result.failures {
             if failures.len() > 0 {
                 return Err(anyhow!(
@@ -164,28 +179,37 @@ impl FargateCreationClient {
     /// Wait for the given task to be provisioned and attributed a private IP
     /// TODO better error management
     /// TODO fargate container lifecycle
-    pub async fn wait_for_provisioning(&self, task_arn: String) -> Result<String> {
+    pub async fn wait_for_provisioning(&self, task_arns: Vec<String>) -> Result<Vec<String>> {
         loop {
             let input = DescribeTasksRequest {
                 cluster: Some(self.cluster_name.clone()),
                 include: None,
-                tasks: vec![task_arn.clone()],
+                tasks: task_arns.clone(),
             };
-            let description = self.client.describe_tasks(input).await?.tasks.unwrap();
-
-            let attachment_props = description[0].attachments.as_ref().unwrap()[0]
-                .details
-                .as_ref()
+            let description = api_timeout(self.client.describe_tasks(input))
+                .await?
+                .tasks
                 .unwrap();
 
-            for prop in attachment_props {
-                if let Some(ref key) = prop.name {
-                    if key == "privateIPv4Address" && prop.value.as_ref().is_some() {
-                        return Ok(prop.value.as_ref().unwrap().clone());
+            let mut ips = vec![];
+
+            for _ in 0..task_arns.len() {
+                let attachment_props = description[0].attachments.as_ref().unwrap()[0]
+                    .details
+                    .as_ref()
+                    .unwrap();
+
+                for prop in attachment_props {
+                    if let Some(ref key) = prop.name {
+                        if key == "privateIPv4Address" && prop.value.as_ref().is_some() {
+                            ips.push(prop.value.as_ref().unwrap().clone());
+                        }
                     }
                 }
             }
-
+            if ips.len() == task_arns.len() {
+                return Ok(ips);
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
@@ -196,4 +220,49 @@ impl FargateCreationClient {
 fn new_client(region: &str) -> Arc<EcsClient> {
     let region = Region::from_str(region).unwrap();
     Arc::new(EcsClient::new(region))
+}
+
+////////////////////////////////////////////////////////////
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FargateNetwork {
+    #[serde(rename(deserialize = "IPv4Addresses"))]
+    pub ipv4_addresses: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FargateContainer {
+    #[serde(rename(deserialize = "Networks"))]
+    pub networks: Vec<FargateNetwork>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FargateMetadata {
+    #[serde(rename(deserialize = "Containers"))]
+    pub containers: Vec<FargateContainer>,
+}
+
+/// get the external IP for the current Fargate task
+pub async fn get_fargate_task_external_host() -> Result<String> {
+    let matadata_endpoint = env::var("ECS_CONTAINER_METADATA_URI_V4")?;
+    let uri: Uri = (matadata_endpoint + "/task").parse()?;
+    let client = Client::new();
+    loop {
+        let resp = client.get(uri.clone()).await?;
+        let body: Body = resp.into_body();
+        let body_bytes = to_bytes(body).await?;
+        let metadata: FargateMetadata = serde_json::from_slice(&body_bytes).with_context(|| {
+            format!(
+                "Impossible to parse task metadata: {}",
+                str::from_utf8(&body_bytes).unwrap()
+            )
+        })?;
+        if metadata.containers.len() > 0
+            && metadata.containers[0].networks.len() > 0
+            && metadata.containers[0].networks[0].ipv4_addresses.len() > 0
+        {
+            return Ok(metadata.containers[0].networks[0].ipv4_addresses[0].clone());
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }

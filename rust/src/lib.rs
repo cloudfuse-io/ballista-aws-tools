@@ -1,13 +1,14 @@
-use std::env;
 use std::process::exit;
+use std::str;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use arrow_flight::flight_service_server::FlightServiceServer;
-use hyper::{body::to_bytes, Body, Client, Uri};
-use log::info;
+use hyper::{body::to_bytes, Body, Client, Method, Request, Uri};
+
+use log::{debug, info};
 use serde::Deserialize;
 use tempfile::TempDir;
 use tonic::transport::Server as TonicServer;
@@ -24,37 +25,51 @@ use ballista_executor::flight_service::BallistaFlightService;
 ////////////////////////////////////////////////////////////
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct FargateNetwork {
-    #[serde(rename(deserialize = "IPv4Addresses"))]
-    pub ipv4_addresses: Vec<String>,
+pub struct RegisteredExecutors {
+    pub id: String,
+    pub host: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct FargateContainer {
-    #[serde(rename(deserialize = "Networks"))]
-    pub networks: Vec<FargateNetwork>,
+pub struct SchedulerState {
+    pub executors: Vec<RegisteredExecutors>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct FargateMetadata {
-    #[serde(rename(deserialize = "Containers"))]
-    pub containers: Vec<FargateContainer>,
-}
-
-pub async fn get_fargate_task_external_host() -> Result<String> {
-    let matadata_endpoint = env::var("ECS_CONTAINER_METADATA_URI_V4")?;
-    let uri: Uri = (matadata_endpoint + "/task").parse()?;
+/// connects to the scheduler and waits until there are sufficient executors connected
+pub async fn wait_executors(
+    scheduler_host: &str,
+    scheduler_port: u16,
+    nb_executor: usize,
+) -> Result<()> {
+    let uri: Uri = format!("http://{}:{}/state", scheduler_host, scheduler_port).parse()?;
     let client = Client::new();
     loop {
-        let resp = client.get(uri.clone()).await?;
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(uri.clone())
+            .header(hyper::header::ACCEPT, "application/json")
+            .header("x-lifetime", "extend")
+            .body(Body::empty())?;
+
+        let resp = match client.request(req).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                info!("Could not connect to scheduler, retrying...");
+                debug!("{:?}", e);
+                continue;
+            }
+        };
         let body: Body = resp.into_body();
         let body_bytes = to_bytes(body).await?;
-        let metadata: FargateMetadata = serde_json::from_slice(&body_bytes)?;
-        if metadata.containers.len() > 0
-            && metadata.containers[0].networks.len() > 0
-            && metadata.containers[0].networks[0].ipv4_addresses.len() > 0
-        {
-            return Ok(metadata.containers[0].networks[0].ipv4_addresses[0].clone());
+        let state: SchedulerState = serde_json::from_slice(&body_bytes).with_context(|| {
+            format!(
+                "Impossible to parse scheduler state: {}",
+                str::from_utf8(&body_bytes).unwrap()
+            )
+        })?;
+        if state.executors.len() == nb_executor {
+            return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -64,6 +79,23 @@ pub async fn get_fargate_task_external_host() -> Result<String> {
 
 /// We limit the number of concurrent tasks to 1 for now
 static CONCURENT_TASKS: usize = 1;
+
+use futures::future::{BoxFuture, FutureExt};
+use tonic::transport::Channel;
+
+fn connect(
+    scheduler_url: String,
+    retry: u8,
+) -> BoxFuture<'static, Result<SchedulerGrpcClient<Channel>>> {
+    async move {
+        match SchedulerGrpcClient::connect(scheduler_url.clone()).await {
+            Ok(sched) => Ok(sched),
+            Err(e) if retry == 2 => Err(e).context("Could not connect to scheduler"),
+            Err(_) => connect(scheduler_url, retry + 1).await,
+        }
+    }
+    .boxed()
+}
 
 pub async fn start_executor(
     bind_host: String,
@@ -94,9 +126,7 @@ pub async fn start_executor(
         port: bind_port as u32,
     };
 
-    let scheduler = SchedulerGrpcClient::connect(scheduler_url)
-        .await
-        .context("Could not connect to scheduler")?;
+    let scheduler = connect(scheduler_url, 0).await?;
 
     let executor = Arc::new(Executor::new(&work_dir));
 
