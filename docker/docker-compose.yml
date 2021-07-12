@@ -28,6 +28,8 @@ services:
       - RUST_LOG=info
       - BALLISTA_EXECUTOR_SCHEDULER_HOST=ballista-standalone
       - BALLISTA_EXECUTOR_SCHEDULER_PORT=50050
+      - BALLISTA_EXECUTOR_CLUSTER_NAME=NA
+      - BALLISTA_EXECUTOR_SCHEDULER_TASK_DEF_ARN=NA
     volumes:
       - ../data:/data
     depends_on:

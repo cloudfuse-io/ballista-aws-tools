@@ -106,6 +106,11 @@ module "trigger" {
     BALLISTA_TRIGGER_EXECUTOR_TASK_DEF_ARN   = module.ballista_executor.task_definition_arn
     BALLISTA_TRIGGER_SUBNETS                 = join(",", module.vpc.public_subnets)
   }
+
+  # lambda attached to EFS will fail to create if the mount points are not ready
+  depends_on = [
+    aws_efs_mount_target.alpha,
+  ]
 }
 
 data "archive_file" "copy_function_zip" {
@@ -139,4 +144,9 @@ module "copy_data" {
   environment = {
     GIT_REVISION = var.git_revision
   }
+
+  # lambda attached to EFS will fail to create if the mount points are not ready
+  depends_on = [
+    aws_efs_mount_target.alpha,
+  ]
 }
