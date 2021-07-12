@@ -111,7 +111,7 @@ impl FargateCreationClient {
             desired_status: Some("RUNNING".to_owned()),
             family: Some(family),
             launch_type: None,
-            max_results: Some(1),
+            max_results: None,
             next_token: None,
             service_name: None,
             started_by: None,
