@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use log::info;
 
 use ballista_aws_tools::fargate;
-use ballista_aws_tools::start_executor;
+use ballista_aws_tools::{start_executor, wait_executors};
 
 #[macro_use]
 extern crate configure_me;
@@ -20,9 +20,6 @@ pub async fn executor() -> Result<()> {
     let (opt, _remaining_args) =
         config::Config::including_optional_config_files(&["/etc/ballista/executor.toml"])
             .unwrap_or_exit();
-
-    let bind_host = opt.bind_host;
-    let bind_port = opt.bind_port;
 
     // if no host is specified in conf, assume we are runnin in Fargate
     let scheduler_host = match &opt.scheduler_host {
@@ -57,14 +54,13 @@ pub async fn executor() -> Result<()> {
         }
     };
 
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            interval.tick().await;
-        }
-    });
-
+    let bind_host = opt.bind_host;
+    let bind_port = opt.bind_port;
     let scheduler_port = opt.scheduler_port;
+
+    // should wait for the scheduler to be ready (up with 0 executor) before starting.
+    wait_executors(&scheduler_host, scheduler_port, 0).await?;
+
     start_executor(bind_host, bind_port, scheduler_host, scheduler_port, None).await
 }
 

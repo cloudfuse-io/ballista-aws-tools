@@ -40,7 +40,7 @@ pub struct SchedulerState {
 pub async fn wait_executors(
     scheduler_host: &str,
     scheduler_port: u16,
-    nb_executor: usize,
+    min_executor_count: usize,
 ) -> Result<()> {
     let uri: Uri = format!("http://{}:{}/state", scheduler_host, scheduler_port).parse()?;
     let client = Client::new();
@@ -57,6 +57,7 @@ pub async fn wait_executors(
             Err(e) => {
                 info!("Could not connect to scheduler, retrying...");
                 debug!("{:?}", e);
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 continue;
             }
         };
@@ -68,7 +69,7 @@ pub async fn wait_executors(
                 str::from_utf8(&body_bytes).unwrap()
             )
         })?;
-        if state.executors.len() == nb_executor {
+        if state.executors.len() >= min_executor_count {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -90,7 +91,8 @@ fn connect(
     async move {
         match SchedulerGrpcClient::connect(scheduler_url.clone()).await {
             Ok(sched) => Ok(sched),
-            Err(e) if retry == 2 => Err(e).context("Could not connect to scheduler"),
+            Err(e) if retry == 2 => Err(e)
+                .with_context(|| format!("Connection failed to scheduler at {}", scheduler_url)),
             Err(_) => connect(scheduler_url, retry + 1).await,
         }
     }
@@ -126,7 +128,7 @@ pub async fn start_executor(
         port: bind_port as u32,
     };
 
-    let scheduler = connect(scheduler_url, 0).await?;
+    let scheduler = connect(scheduler_url.clone(), 0).await?;
 
     let executor = Arc::new(Executor::new(&work_dir));
 

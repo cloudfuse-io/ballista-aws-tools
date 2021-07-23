@@ -121,7 +121,7 @@ impl FargateCreationClient {
             .await
             .context("failed to call Fargate list_tasks")?
             .task_arns
-            .context("Task arn list was none")
+            .context("Task arn list was undefined")
     }
 
     /// Start new task and return its arn
@@ -215,7 +215,7 @@ impl FargateCreationClient {
     }
 }
 
-//// Lambda Client ////
+//// Fargate Client ////
 
 fn new_client(region: &str) -> Arc<EcsClient> {
     let region = Region::from_str(region).unwrap();
