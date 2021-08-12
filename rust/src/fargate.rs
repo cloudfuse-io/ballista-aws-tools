@@ -107,14 +107,9 @@ impl FargateCreationClient {
 
         let request = ListTasksRequest {
             cluster: Some(self.cluster_name.clone()),
-            container_instance: None,
             desired_status: Some("RUNNING".to_owned()),
             family: Some(family),
-            launch_type: None,
-            max_results: None,
-            next_token: None,
-            service_name: None,
-            started_by: None,
+            ..Default::default()
         };
 
         api_timeout(self.client.list_tasks(request))
@@ -133,7 +128,6 @@ impl FargateCreationClient {
         subnets: Vec<String>,
     ) -> Result<String> {
         let input = RunTaskRequest {
-            group: None,
             task_definition: task_def_arn,
             count: Some(1),
             cluster: Some(self.cluster_name.clone()),
@@ -144,17 +138,7 @@ impl FargateCreationClient {
                     security_groups: Some(vec![security_group]),
                 }),
             }),
-            enable_ecs_managed_tags: None,
-            capacity_provider_strategy: None,
-            placement_constraints: None,
-            placement_strategy: None,
-            platform_version: None,
-            launch_type: None,
-            overrides: None,
-            propagate_tags: None,
-            reference_id: None,
-            started_by: None,
-            tags: None,
+            ..Default::default()
         };
         let result = api_timeout(self.client.run_task(input)).await?;
         if let Some(failures) = result.failures {
@@ -183,8 +167,8 @@ impl FargateCreationClient {
         loop {
             let input = DescribeTasksRequest {
                 cluster: Some(self.cluster_name.clone()),
-                include: None,
                 tasks: task_arns.clone(),
+                ..Default::default()
             };
             let description = api_timeout(self.client.describe_tasks(input))
                 .await?

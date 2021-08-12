@@ -1,32 +1,32 @@
 [package]
 name = "ballista-aws-tools"
 version = "0.1.0"
-authors = ["rdettai <contact@cloudfuse.io>"]
+authors = ["apache <contact@cloudfuse.io>"]
 edition = "2018"
 
 [lib]
 name = "ballista_aws_tools"
 
 [dependencies]
-ballista-core = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
-ballista-executor = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
-ballista-scheduler = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
-ballista = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
-datafusion = { git = "https://github.com/apache/arrow-datafusion", rev = "03cfcb26ad6a566dc6fabe6f93e4f3b3d416432d" }
-rusoto_core = { version = "0.46.0", default_features = false, features=["rustls"] }
-rusoto_ecs = { version = "0.46.0", default_features = false, features=["rustls"] }
-lambda_runtime = "0.2.1"
-arrow-flight = { version = "4.4"  }
+ballista-core = { git = "https://github.com/apache/arrow-datafusion/", rev =  "83ce64a2c58c2defb25a797011e57b8eb2e14bdd"}
+ballista-executor = { git = "https://github.com/apache/arrow-datafusion", rev = "83ce64a2c58c2defb25a797011e57b8eb2e14bdd" }
+ballista-scheduler = { git = "https://github.com/apache/arrow-datafusion", rev = "83ce64a2c58c2defb25a797011e57b8eb2e14bdd" }
+ballista = { git = "https://github.com/apache/arrow-datafusion", rev = "83ce64a2c58c2defb25a797011e57b8eb2e14bdd" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion", rev = "83ce64a2c58c2defb25a797011e57b8eb2e14bdd" }
+rusoto_core = { version = "0.47.0", default_features = false, features=["rustls"] }
+rusoto_ecs = { version = "0.47.0", default_features = false, features=["rustls"] }
+lambda_runtime = "0.4"
+arrow-flight = "5.1"
 anyhow = "1"
 async-trait = "0.1.36"
 configure_me = "0.4.0"
-env_logger = "0.8"
+env_logger = "0.9"
 futures = "0.3"
 log = "0.4"
 tempfile = "3"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tonic = "0.4"
+tonic = "0.5.1"
 uuid = { version = "0.8", features = ["v4"] }
 hyper = { version = "0.14.4", features = ["full"] }
 tower = { version = "0.4" }
@@ -34,9 +34,12 @@ warp = "0.3"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4" }
+# tpch benchmark dependency
+structopt = { version = "0.3", default-features = false }
 
 [build-dependencies]
 configure_me_codegen = "0.4.0"
+arrow-benchmarks = { git = "https://github.com/apache/arrow-datafusion", rev = "83ce64a2c58c2defb25a797011e57b8eb2e14bdd" }
 
 [package.metadata.configure_me.bin]
 standalone = "standalone_config_spec.toml"
