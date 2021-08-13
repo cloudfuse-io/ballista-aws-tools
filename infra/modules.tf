@@ -126,7 +126,7 @@ module "copy_data" {
   region_name        = var.region_name
   filename           = ".terraform/copy-data.zip"
   memory_size        = 3008
-  timeout            = 120
+  timeout            = 240
   handler            = "copy-data.lambda_handler"
   runtime            = "python3.8"
 

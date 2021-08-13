@@ -120,9 +120,23 @@ fn get_schema(table: &str) -> Schema {
     }
 }
 
-pub fn register_tpch_tables(ctx: &mut BallistaContext) -> Result<()> {
+pub fn register_simple_tpch_tables(ctx: &mut BallistaContext) -> Result<()> {
     for table in TABLES {
         let path = format!("/mnt/data/{}.tbl", table);
+        let schema = get_schema(table);
+        let options = CsvReadOptions::new()
+            .schema(&schema)
+            .delimiter(b'|')
+            .has_header(false)
+            .file_extension(".tbl");
+        ctx.register_csv(table, &path, options)?;
+    }
+    Ok(())
+}
+
+pub fn register_memsql_tpch_tables(ctx: &mut BallistaContext) -> Result<()> {
+    for table in TABLES {
+        let path = format!("/mnt/data/{}/", table);
         let schema = get_schema(table);
         let options = CsvReadOptions::new()
             .schema(&schema)

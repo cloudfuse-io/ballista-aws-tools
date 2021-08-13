@@ -4,7 +4,7 @@ use anyhow::Result;
 use ballista::prelude::BallistaConfig;
 use log::{debug, info};
 
-use ballista_aws_tools::tpch::{register_tpch_tables, QUERY_1};
+use ballista_aws_tools::tpch::{register_memsql_tpch_tables, QUERY_1};
 use ballista_aws_tools::{fargate, wait_executors};
 
 use ballista::context::BallistaContext;
@@ -19,7 +19,7 @@ include_config!("trigger");
 
 async fn query_ballista(host: &str, port: u16) -> Result<()> {
     let mut ctx = BallistaContext::remote(host, port, &BallistaConfig::new()?);
-    register_tpch_tables(&mut ctx)?;
+    register_memsql_tpch_tables(&mut ctx)?;
     // run benchmark
     let sql = QUERY_1;
     debug!("Running benchmark with query: {}", sql);
