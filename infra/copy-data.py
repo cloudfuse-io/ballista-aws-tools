@@ -47,7 +47,9 @@ def copy_memsql():
             key = ls_key['Key']
             if key.endswith('/'):
                 continue
-            local_path = f'/mnt/data/{table_name}/{i:02d}.tbl'
+            partition_name = f'{table_name}/{i:02d}.tbl'
+            tmp_local_path = f'/mnt/data/tmp/{partition_name}'
+            local_path = f'/mnt/data/{partition_name}'
             if local_path in existing_files:
                 print(f'{local_path} already exists')
                 continue
@@ -57,12 +59,14 @@ def copy_memsql():
                     Bucket=bucket,
                     Key=key,
                 )
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
-                with open(local_path, 'wb') as f:
+                os.makedirs(os.path.dirname(tmp_local_path), exist_ok=True)
+                with open(tmp_local_path, 'wb') as f:
                     with gzip.GzipFile(fileobj=obj["Body"]) as gzipfile:
-                        for chunk in gzipfile.iter_chunks(chunk_size=4096):
+                        for chunk in gzipfile:
                             f.write(chunk)
-                print(f'{key} downloaded')
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                os.rename(tmp_local_path, local_path)
+                print(f'{key} downloaded as {local_path}')
             except Exception as e:
                 print(e)
                 print(
@@ -72,11 +76,24 @@ def copy_memsql():
 
 def lambda_handler(event, context):
     bucket = event.get('bucket', 'memsql-tpch-dataset')
-    if bucket == 'memsql-tpch-dataset':
-        check_region('us-east-1')
-        copy_memsql()
-    elif bucket == 'cloudfuse-taxi-data':
-        check_region('us-east-2')
-        copy_cf()
-    else:
-        raise Exception(f'Unknown bucket: {bucket}')
+    mode = event.get('mode', 'copy')
+    if mode == 'copy':
+        if bucket == 'memsql-tpch-dataset':
+            check_region('us-east-1')
+            copy_memsql()
+        elif bucket == 'cloudfuse-taxi-data':
+            check_region('us-east-2')
+            copy_cf()
+        else:
+            raise Exception(f'Unknown bucket: {bucket}')
+    elif mode == 'delete':
+        for filename in glob.glob("/mnt/data/**/*"):
+            try:
+                os.remove(filename)
+                print('deleting', filename)
+            except:
+                print('skiping', filename)
+    elif mode == 'list':
+        for filename in glob.glob("/mnt/data/**/*"):
+            print(os.stat(filename).st_size, '-->', filename)  
+
