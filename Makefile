@@ -30,6 +30,9 @@ docker-login:
 
 ## BUILD CONTAINERS AND LAMBDAS
 
+build:
+	cd rust; cargo build
+
 rust/target/docker/%.zip: $(shell find rust/src -type f) rust/Cargo.toml docker/Dockerfile
 	mkdir -p ./rust/target/docker
 	DOCKER_BUILDKIT=1 docker build \
@@ -116,7 +119,7 @@ run-integ-docker: ask-run-target
 
 # call the trigger lambda to start the cluster and run a query
 run-integ-aws: ask-run-target
-	aws lambda invoke \
+	AWS_MAX_ATTEMPTS=1 aws lambda invoke \
 			--function-name $(shell bash -c 'cd infra; ${terraform} output trigger_lambda_name') \
 			--log-type Tail \
 			--region ${REGION} \

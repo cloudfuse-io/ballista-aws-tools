@@ -78,9 +78,6 @@ pub async fn wait_executors(
 
 ///////////////////////////////////////////////
 
-/// We limit the number of concurrent tasks to 1 for now
-static CONCURENT_TASKS: usize = 1;
-
 use futures::future::{BoxFuture, FutureExt};
 use tonic::transport::Channel;
 
@@ -105,6 +102,7 @@ pub async fn start_executor(
     scheduler_host: String,
     scheduler_port: u16,
     optional_host: Option<String>,
+    concurrent_tasks: usize,
 ) -> Result<()> {
     let addr = format!("{}:{}", bind_host, bind_port);
     let addr = addr
@@ -120,7 +118,7 @@ pub async fn start_executor(
         .unwrap();
     info!("Running with config:");
     info!("work_dir: {}", work_dir);
-    info!("concurrent_tasks: {}", CONCURENT_TASKS);
+    info!("concurrent_tasks: {}", concurrent_tasks);
 
     let executor_meta = ExecutorRegistration {
         id: Uuid::new_v4().to_string(), // assign this executor a unique ID
@@ -144,7 +142,7 @@ pub async fn start_executor(
         scheduler,
         executor,
         executor_meta,
-        CONCURENT_TASKS,
+        concurrent_tasks,
     ));
 
     server_future
@@ -156,9 +154,7 @@ pub async fn start_executor(
 
 //////////////////////////////////////////////////////
 
-const TASK_EXPIRATION_SEC: i64 = 300;
-
-pub fn shutdown_ticker() -> Arc<AtomicI64> {
+pub fn shutdown_ticker(task_expiration_sec: i64) -> Arc<AtomicI64> {
     let last_query = Arc::new(AtomicI64::new(chrono::Utc::now().timestamp()));
     let last_query_ref = Arc::clone(&last_query);
     tokio::spawn(async move {
@@ -166,7 +162,7 @@ pub fn shutdown_ticker() -> Arc<AtomicI64> {
         loop {
             interval.tick().await;
             let elapsed = chrono::Utc::now().timestamp() - last_query_ref.load(Ordering::Relaxed);
-            if elapsed >= TASK_EXPIRATION_SEC {
+            if elapsed >= task_expiration_sec {
                 info!(
                     "task expired after {}s of inactivity, shutting down...",
                     elapsed

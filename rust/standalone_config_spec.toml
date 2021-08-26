@@ -31,3 +31,15 @@ doc = "executor bind port. Default: 50051"
 name = "executor_external_host"
 type = "String"
 doc = "Host name or IP address to register with scheduler so that other executors can connect to this executor. If none is provided, the scheduler will use the connecting IP address to communicate with the executor."
+
+[[param]]
+name = "task_expiration_sec"
+type = "i64"
+default = "600"
+doc = "The number of seconds without requests after which the scheduler shuts down"
+
+[[param]]
+name = "concurrent_tasks"
+type = "u16"
+default = "1"
+doc = "The number of parallel tasks that can run on this executor"

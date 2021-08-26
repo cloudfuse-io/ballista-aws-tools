@@ -29,13 +29,14 @@ async fn start_scheduler_server(
     config_backend: Arc<dyn ConfigBackendClient>,
     namespace: String,
     addr: SocketAddr,
+    task_expiration_sec: i64,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
         BALLISTA_VERSION, addr
     );
 
-    let last_query_time = shutdown_ticker();
+    let last_query_time = shutdown_ticker(task_expiration_sec);
 
     Ok(Server::bind(&addr)
         .serve(make_service_fn(move |request: &AddrStream| {
@@ -84,6 +85,7 @@ async fn scheduler(opt: &Config) -> Result<()> {
     let namespace = opt.namespace.clone();
     let bind_host = &opt.bind_host;
     let port = opt.scheduler_bind_port;
+    let task_expiration_sec = opt.task_expiration_sec;
 
     let addr = format!("{}:{}", bind_host, port);
     let addr = addr.parse()?;
@@ -92,7 +94,7 @@ async fn scheduler(opt: &Config) -> Result<()> {
         StandaloneClient::try_new_temporary()
             .context("Could not create standalone config backend")?,
     );
-    start_scheduler_server(client, namespace, addr).await?;
+    start_scheduler_server(client, namespace, addr, task_expiration_sec).await?;
     Ok(())
 }
 
@@ -106,6 +108,7 @@ pub async fn executor(opt: &Config) -> Result<()> {
     let bind_port = opt.executor_bind_port;
     let scheduler_host = "localhost".to_owned();
     let scheduler_port = opt.scheduler_bind_port;
+    let concurrent_tasks = opt.concurrent_tasks as usize;
 
     start_executor(
         bind_host,
@@ -113,6 +116,7 @@ pub async fn executor(opt: &Config) -> Result<()> {
         scheduler_host,
         scheduler_port,
         Some(external_host),
+        concurrent_tasks,
     )
     .await
 }

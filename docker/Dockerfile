@@ -21,8 +21,7 @@ RUN --mount=type=cache,target=./target \
   --mount=type=cache,target=/usr/local/cargo/registry/cache/ \
   rm -rf vendor/ && \
   cargo vendor vendor/ && \
-  cp vendor/arrow-benchmarks/src/bin/tpch.rs src/bin/ && \
-  cp -r vendor/arrow-benchmarks/queries/ .
+  cp vendor/arrow-benchmarks/src/bin/tpch.rs src/bin/
 # build on musl platform and save 
 RUN --mount=type=cache,target=./target \
   --mount=type=cache,target=/usr/local/cargo/git/db/ \
@@ -53,7 +52,7 @@ ENTRYPOINT ["./app"]
 # A runtime container for executing tpch queries
 FROM scratch as tpch-stage
 COPY --from=build-stage /buildspace/exec-static /app
-COPY --from=build-stage /buildspace/queries /queries
+COPY --from=build-stage /buildspace/src/tpch_queries /queries
 COPY --from=build-stage /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build-stage /tmp /tmp
 ENTRYPOINT ["./app"]

@@ -57,11 +57,12 @@ pub async fn executor() -> Result<()> {
     let bind_host = opt.bind_host;
     let bind_port = opt.bind_port;
     let scheduler_port = opt.scheduler_port;
+    let concurrent_tasks = opt.concurrent_tasks as usize;
 
     // should wait for the scheduler to be ready (up with 0 executor) before starting.
     wait_executors(&scheduler_host, scheduler_port, 0).await?;
 
-    start_executor(bind_host, bind_port, scheduler_host, scheduler_port, None).await
+    start_executor(bind_host, bind_port, scheduler_host, scheduler_port, None, concurrent_tasks).await
 }
 
 #[tokio::main]

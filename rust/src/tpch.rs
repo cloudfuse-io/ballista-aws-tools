@@ -1,29 +1,36 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use ballista::context::BallistaContext;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::prelude::*;
+use std::include_str;
 
-pub const QUERY_1: &str = "select
-l_returnflag,
-l_linestatus,
-sum(l_quantity) as sum_qty,
-sum(l_extendedprice) as sum_base_price,
-sum(l_extendedprice * (1 - l_discount)) as sum_disc_price,
-sum(l_extendedprice * (1 - l_discount) * (1 + l_tax)) as sum_charge,
-avg(l_quantity) as avg_qty,
-avg(l_extendedprice) as avg_price,
-avg(l_discount) as avg_disc,
-count(*) as count_order
-from
-lineitem
-where
-    l_shipdate <= date '1998-09-02'
-group by
-l_returnflag,
-l_linestatus
-order by
-l_returnflag,
-l_linestatus;";
+pub fn get_query(tpch_query: u8) -> Result<&'static str> {
+    match tpch_query {
+        1 => Ok(include_str!("tpch_queries/q1.sql")),
+        2 => Ok(include_str!("tpch_queries/q2.sql")),
+        3 => Ok(include_str!("tpch_queries/q3.sql")),
+        4 => Ok(include_str!("tpch_queries/q4.sql")),
+        5 => Ok(include_str!("tpch_queries/q5.sql")),
+        6 => Ok(include_str!("tpch_queries/q6.sql")),
+        7 => Ok(include_str!("tpch_queries/q7.sql")),
+        8 => Ok(include_str!("tpch_queries/q8.sql")),
+        9 => Ok(include_str!("tpch_queries/q9.sql")),
+        10 => Ok(include_str!("tpch_queries/q10.sql")),
+        11 => Ok(include_str!("tpch_queries/q11.sql")),
+        12 => Ok(include_str!("tpch_queries/q12.sql")),
+        13 => Ok(include_str!("tpch_queries/q13.sql")),
+        14 => Ok(include_str!("tpch_queries/q14.sql")),
+        15 => Ok(include_str!("tpch_queries/q15.sql")),
+        16 => Ok(include_str!("tpch_queries/q16.sql")),
+        17 => Ok(include_str!("tpch_queries/q17.sql")),
+        18 => Ok(include_str!("tpch_queries/q18.sql")),
+        19 => Ok(include_str!("tpch_queries/q19.sql")),
+        20 => Ok(include_str!("tpch_queries/q20.sql")),
+        21 => Ok(include_str!("tpch_queries/q21.sql")),
+        22 => Ok(include_str!("tpch_queries/q22.sql")),
+        _ => bail!("unknown tpch query {}", tpch_query)
+    }
+}
 
 const TABLES: &[&str] = &[
     "part", "supplier", "partsupp", "customer", "orders", "lineitem", "nation", "region",

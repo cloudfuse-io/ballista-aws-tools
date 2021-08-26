@@ -2,3 +2,4 @@
 .vscode
 default.env
 data/
+.ipynb_checkpoints

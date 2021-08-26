@@ -47,31 +47,25 @@ def copy_memsql():
             key = ls_key['Key']
             if key.endswith('/'):
                 continue
-            partition_name = f'{table_name}/{i:02d}.tbl'
+            partition_name = f'{table_name}/{i:03d}.tbl'
             tmp_local_path = f'/mnt/data/tmp/{partition_name}'
             local_path = f'/mnt/data/{partition_name}'
             if local_path in existing_files:
                 print(f'{local_path} already exists')
                 continue
-            try:
-                print(f'starting dl of: {key}')
-                obj = s3.get_object(
-                    Bucket=bucket,
-                    Key=key,
-                )
-                os.makedirs(os.path.dirname(tmp_local_path), exist_ok=True)
-                with open(tmp_local_path, 'wb') as f:
-                    with gzip.GzipFile(fileobj=obj["Body"]) as gzipfile:
-                        for chunk in gzipfile:
-                            f.write(chunk)
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
-                os.rename(tmp_local_path, local_path)
-                print(f'{key} downloaded as {local_path}')
-            except Exception as e:
-                print(e)
-                print(
-                    f'Error getting object {key} from bucket {bucket}. Make sure they exist and your bucket is in the same region as this function.')
-                raise e
+            print(f'starting dl of: {key}')
+            obj = s3.get_object(
+                Bucket=bucket,
+                Key=key,
+            )
+            os.makedirs(os.path.dirname(tmp_local_path), exist_ok=True)
+            with open(tmp_local_path, 'wb') as f:
+                with gzip.GzipFile(fileobj=obj["Body"]) as gzipfile:
+                    for chunk in gzipfile:
+                        f.write(chunk)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            os.rename(tmp_local_path, local_path)
+            print(f'{key} downloaded as {local_path}')
 
 
 def lambda_handler(event, context):

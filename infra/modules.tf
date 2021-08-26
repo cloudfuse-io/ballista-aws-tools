@@ -81,7 +81,7 @@ module "trigger" {
   region_name        = var.region_name
   filename           = "../rust/target/docker/trigger.zip"
   memory_size        = 3008
-  timeout            = 60
+  timeout            = 900
 
   in_vpc  = true
   vpc_id  = module.vpc.vpc_id

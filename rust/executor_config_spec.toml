@@ -37,3 +37,9 @@ name = "scheduler_task_def_arn"
 type = "String"
 doc = "Task Definition ARN for scheduler component (standalone task)"
 optional = false
+
+[[param]]
+name = "concurrent_tasks"
+type = "u16"
+default = "1"
+doc = "The number of parallel tasks that can run on this executor"
